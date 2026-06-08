@@ -12,7 +12,7 @@ logging.basicConfig(
 
 
 class Environment:
-    def __init__(self):
+    def __init__(self,s=0,e=time.time(), cache_ver=0):
         self.url = URL
         self.session_ids = []
         self.extra_urls = [
@@ -21,15 +21,18 @@ class Environment:
             f"{URL}/api/v0/chat_session/fetch_page",
         ]
         self.headers = HEADERS
-        self.cache_versions = 0
-        self.cache_reset_at = None
+        self.cache_versions = cache_ver
+        self.cache_interval = [s, e]
 
     def get_hist_info(self, chat_session_id: str):
         self.hist_info_url = f"{self.extra_urls[1]}?chat_session_id={chat_session_id}&cache_version={self.cache_versions}"
         return self.hist_info_url
 
-    def get_fetch_info(self, pointer: float):
-        self.fetch_page_url = f"{self.extra_urls[2]}?lte_cursor.pinned=false&lte_cursor.updated_at={pointer}"
+    def get_fetch_info(self, pointer: float=None):
+        self.fetch_page_url = f"{self.extra_urls[2]}?lte_cursor.pinned=false"
+        if pointer:
+            self.fetch_page_url = f"{self.fetch_page_url}&lte_cursor.updated_at={pointer}"
+        print(f"获取会话分页信息成功，URL：{self.fetch_page_url}")
         return self.fetch_page_url
 
     def get_user_info(self):
@@ -45,7 +48,8 @@ class Bug:
         self.session.headers.update(self.env.headers)
         self.error_session_ids = []
         self.identity_check = False
-        self.time_pointer = None
+        self.time_s, self.time_e = env.cache_interval
+        self.logger.info(f"初始化完成，时序区间：{self.time_s}-{self.time_e}开始获取会话列表")
 
     def check_identity(self):
         resp = self.session.get(self.env.get_user_info())
@@ -57,7 +61,7 @@ class Bug:
             self.identity_check = False
     
     def get_sessions_ids(self):
-        pointer = time.time() if self.time_pointer is None else self.time_pointer 
+        pointer = None
         while True:
             resp = self.session.get(self.env.get_fetch_info(pointer))
             if resp.status_code == 200:
@@ -67,10 +71,16 @@ class Bug:
                 self.env.session_ids.extend(database['chat_sessions'])
                 if database['has_more']:
                     pointer = database['chat_sessions'][-1]['updated_at']
-                else:
-                    with open("session_ids.json", "w", encoding="utf-8") as f:
-                        json.dump(self.env.session_ids, f, ensure_ascii=False, indent=4)
+                    self.logger.info(f"最新会话插入时间：{pointer}")
+                    continue
+                if pointer < self.time_s:
+                    pointer = self.time_s
+                    self.logger.info(f"时序区间：{self.time_s}-{self.time_e}结束，退出循环")
                     break
+                with open("session_ids.json", "w", encoding="utf-8") as f:
+                    json.dump(self.env.session_ids, f, ensure_ascii=False, indent=4)
+                break
+
             else:
                 self.logger.error(f"获取会话列表失败，状态码：{resp.status_code}")
                 self.env.session_ids = []
