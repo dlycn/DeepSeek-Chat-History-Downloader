@@ -1,4 +1,5 @@
 config.py
 *.json
 /deepseek
-/__pycache__
+**/__pycache__
+.mailmap
