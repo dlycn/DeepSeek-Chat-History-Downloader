@@ -1,5 +1,8 @@
 src/config.py
+src/config.rs
+
 *.json
 /deepseek
 **/__pycache__
 .mailmap
+.trae

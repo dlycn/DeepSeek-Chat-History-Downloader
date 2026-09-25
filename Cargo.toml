@@ -1,8 +1,31 @@
 [package]
 name = "ai-chat-history-dl"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-authors.workspace = true
 
-[dependencies]
+
+[package.version]
+workspace = true
+
+
+[package.edition]
+workspace = true
+
+
+[package.license]
+workspace = true
+
+
+[package.authors]
+workspace = true
+
+
+[dependencies.reqwest]
+workspace = true
+
+[dependencies.tokio]
+workspace = true
+
+[dependencies.scraper]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
