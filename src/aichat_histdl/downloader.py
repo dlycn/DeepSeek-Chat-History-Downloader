@@ -34,6 +34,9 @@ class Downloader:
                 level=logging.INFO,
                 format="%(asctime)s [%(levelname)s] %(message)s",
             )
+        logger.info("aichat_histdl 是模块，不是一键脚本。")
+        logger.info("请阅读源码中的使用示例，自行编写调用代码。")
+        logger.info("这是刻意的设计：你需要知道每一步在做什么。")
 
         self._token = token or os.environ.get("DEEPSEEK_TOKEN", "")
         self._cookie = cookie or os.environ.get("DEEPSEEK_COOKIE", "")

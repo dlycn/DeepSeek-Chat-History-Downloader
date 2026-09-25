@@ -39,11 +39,7 @@ DeepSeek 聊天记录下载模块。
 """
 
 if __name__ == "__main__":
-    print(
-        "aichat_histdl 是模块，不是一键脚本。\n"
-        "请阅读源码中的使用示例，自行编写调用代码。\n"
-        "这是刻意的设计：你需要知道每一步在做什么。"
-    )
+
     from aichat_histdl import Downloader
     import config
 
