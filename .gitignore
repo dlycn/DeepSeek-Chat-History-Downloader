@@ -1,6 +1,5 @@
 src/config.py
-src/config.rs
-
+settings.toml
 *.json
 /deepseek
 **/__pycache__

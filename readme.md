@@ -1,177 +1,218 @@
-# DeepSeek Chat History Downloader
+# AI Chat History DL + 知乎日常助手
 
-从 DeepSeek 网页版 API 下载所有聊天会话的历史记录，保存为 JSON 文件。
+DeepSeek 对话下载器（Python） + 知乎日常分析工具（Rust）。
 
-## 功能
+```
+┌─────────────────────────┐     ┌─────────────────────────┐
+│  src/aichat_histdl/     │     │  src/*.rs (Rust CLI)    │
+│  Python 下载器          │ ──► │  aichdl parse / daily   │
+│                         │     │                         │
+│  deepseek/chat_*.json   │     │  用户画像 → 知乎匹配     │
+└─────────────────────────┘     └─────────────────────────┘
+```
+
+---
+
+## 一、Python: DeepSeek 对话下载器
+
+### 功能
 
 - 自动获取当前用户的所有会话列表（支持分页）
 - 逐个下载每个会话的完整聊天历史
-- 会话标题经过文件名字符安全处理，避免非法字符
-- 失败重试机制（409 自动重试最多 5 次）
-- 本地缓存会话列表 (`session_ids.json`)，避免重复拉取
+- 会话标题经过文件名字符安全处理
+- 失败重试（409→自动等 1s，最多 5 次）
+- 本地缓存会话列表，避免重复拉取
 - 失败会话 ID 记录到 `error_session_ids.json`
 
-## 项目结构
-
-```
-aichathistorydl/
-├── src/
-│   ├── main.py                     # 模块文档 + 直接运行示例
-│   ├── main.rs                     # Rust 占位（workspace 成员）
-│   └── aichat_histdl/
-│       ├── __init__.py             # 导出 Downloader / path_safe
-│       ├── downloader.py           # 核心下载逻辑
-│       ├── models.py               # 数据模型（Session / ChatHistory）
-│       └── utils.py                # 工具函数（path_safe）
-├── Cargo.toml                      # Rust workspace 配置
-├── .python-version                 # Python 3.12
-└── .gitignore
-```
-
-## 依赖
-
-- **Python 3.12+**
-- `requests`
+### 依赖
 
 ```bash
 pip install requests
 ```
 
-## 获取凭据
+### 获取凭据
 
-登录 [chat.deepseek.com](https://chat.deepseek.com)，打开浏览器开发者工具（F12）→ 网络（Network）标签，找到任意 API 请求，从中提取：
+登录 [chat.deepseek.com](https://chat.deepseek.com)，F12 → Network，找任意 API 请求：
 
 | 凭据 | 来源 |
 |------|------|
-| **Token** | 请求头 `authorization` 的值，去掉 `Bearer ` 前缀 |
-| **Cookie** | 请求头 `cookie` 的完整值 |
+| Token | 请求头 `authorization`，去掉 `Bearer ` 前缀 |
+| Cookie | 请求头 `cookie` 完整值 |
 
-## 使用方式
-
-> **设计说明**：`aichat_histdl` 是一个 Python **模块**，不是一键脚本。你需要自行编写调用代码——这是刻意设计的，确保你知道每一步在做什么。
-
-### 方式一：显式传参（推荐）
+### 使用
 
 ```python
 from aichat_histdl import Downloader
 
 Downloader(
-    token="<你的 token>",
-    cookie="<你的 cookie>",
-    output_dir="deepseek",      # 可选，默认 deepseek/
+    token="<token>",
+    cookie="<cookie>",
 ).run()
 ```
 
-### 方式二：环境变量
+详细用法见原有 Readme 下文，此处从略。
 
-```bash
-# Windows PowerShell
-$env:DEEPSEEK_TOKEN = "<你的 token>"
-$env:DEEPSEEK_COOKIE = "<你的 cookie>"
-
-# Linux / macOS
-export DEEPSEEK_TOKEN="<你的 token>"
-export DEEPSEEK_COOKIE="<你的 cookie>"
-```
-
-```python
-from aichat_histdl import Downloader
-
-Downloader().run()
-```
-
-### 方式三：分步控制
-
-```python
-from aichat_histdl import Downloader
-
-dl = Downloader(token="...", cookie="...")
-
-dl.check()                      # 验证身份
-for s in dl.sessions():         # 遍历会话列表
-    dl.download(s)              # 逐个下载
-```
-
-### 方式四：直接运行 `main.py`（快速体验）
-
-`src/main.py` 的 `__main__` 块中硬编码了示例凭据（已失效），替换为你的凭据后可以直接运行：
-
-```bash
-cd src
-python main.py
-```
-
-## 输出
+### 输出
 
 | 文件 | 说明 |
 |------|------|
-| `deepseek/chat_{标题}.json` | 每个会话的完整聊天记录 |
-| `session_ids.json` | 会话列表缓存（自动生成） |
-| `error_session_ids.json` | 下载失败的会话 ID（自动生成） |
+| `deepseek/chat_{标题}.json` | 每个会话完整记录 |
+| `session_ids.json` | 会话列表缓存 |
+| `error_session_ids.json` | 下载失败的会话 |
 
-## API
+---
+
+## 二、Rust: 知乎日常助手 (`aichdl`)
+
+### 安装 / 构建
+
+```bash
+# Debug
+cargo build
+
+# Release（独立分发的单文件二进制）
+cargo build --release
+# → ../target/release/aichdl.exe
+```
+
+### 命令
+
+| 命令 | 说明 |
+|------|------|
+| `aichdl init` | 交互式配置：DS 目录、知乎 Cookie/xsrf，存 `settings.toml` |
+| `aichdl parse [-d dir]` | 纯本地分析，输出用户画像 + 候选问题 |
+| `aichdl daily [-d dir]` | 拉取知乎推荐问题 + 匹配兴趣（需先 `init`） |
+
+### 首次配置
+
+```bash
+aichdl init
+```
+
+交互提示：
+- **DeepSeek 对话目录** — 默认 `deepseek`（与 Python 下载器输出一致）
+- **知乎 Cookie** — 多行输入，空行结束；不留空以启用 API 功能
+- **知乎 x-xsrftoken** — Cookie 中 `_xsrf=` 字段值
+
+凭据存入 `settings.toml`，以 `Option` 存储——**二进制中无硬编码凭据，无隐私泄露风险**。后续命令自动加载。
+
+### 本地分析
+
+```bash
+aichdl parse
+```
+
+无需知乎凭据，纯本地。输出：
+- 会话数 / 提问数
+- 10 维度兴趣画像
+- 可提取的知乎候选问题
+
+### 完整日常
+
+```bash
+aichdl daily
+```
+
+1. 解析 DS 对话 JSON → 用户画像
+2. 拉取知乎推荐问题（需有效 Cookie）
+3. 关键词匹配 → 输出关联问题 + 建议角度
+
+若未配置 Cookie，自动降级为纯本地分析。
+
+### 数据流
+
+```
+deepseek/chat_*.json           知乎 API
+       │                           │
+       ▼                           ▼
+  ds_parser.rs              zhihu/mod.rs
+  (提取 USER 提问)          (推荐问题列表)
+       │                           │
+       └──────────┬────────────────┘
+                  ▼
+           analyzer.rs
+      (关键词匹配 + 兴趣画像)
+                  │
+                  ▼
+           main.rs (CLI)
+        ┌────────┴────────┐
+        ▼                 ▼
+      parse             daily
+   (本地报告)        (完整任务单)
+```
+
+### 10 个兴趣维度
+
+`Rust编程` `游戏开发` `前端/GUI` `工具链/DevOps` `社会人文` `数学/科学` `生活消费` `AI/机器学习` `哲学/思辨` `Android/移动`
+
+---
+
+## 三、完整工作流
+
+```bash
+# 1. Python 下载 DS 对话
+cd src
+python -c "from aichat_histdl import Downloader; Downloader(token='...', cookie='...').run()"
+
+# 2. Rust 首次配置（仅一次）
+aichdl init
+
+# 3. 日常使用
+aichdl daily
+```
+
+---
+
+## 四、项目结构
+
+```
+aichathistorydl/
+├── Cargo.toml
+├── settings.toml                    ← aichdl init 生成
+├── src/
+│   ├── main.rs                      ← CLI 入口
+│   ├── settings.rs                  ← 交互式配置管理
+│   ├── config.rs                    ← 知乎请求头构建
+│   ├── ds_parser.rs                 ← DS JSON 解析
+│   ├── analyzer.rs                  ← 画像 + 匹配
+│   ├── types.rs                     ← 数据模型
+│   ├── zhihu/mod.rs                 ← 知乎 API
+│   ├── main.py                      ← Python 入口
+│   └── aichat_histdl/               ← Python 下载器模块
+│       ├── __init__.py
+│       ├── downloader.py
+│       ├── models.py
+│       └── utils.py
+└── deepseek/                        ← 下载的 DS 对话 JSON
+    ├── chat_xxx.json
+    └── ...
+```
+
+---
+
+## 五、Python API 参考
 
 ### `Downloader`
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `token` | `str` | `""` | Bearer Token，为空则读环境变量 `DEEPSEEK_TOKEN` |
-| `cookie` | `str` | `""` | Cookie 字符串，为空则读环境变量 `DEEPSEEK_COOKIE` |
+| `token` | `str` | `""` | Bearer Token |
+| `cookie` | `str` | `""` | Cookie 字符串 |
 | `output_dir` | `str` | `"deepseek"` | JSON 输出目录 |
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `.run()` | `Downloader` | 一键执行：验证 → 拉取会话 → 下载全部 |
-| `.check()` | `bool` | 验证凭据是否有效 |
+| `.run()` | `Downloader` | 一键：验证→拉会话→全部下载 |
+| `.check()` | `bool` | 验证凭据 |
 | `.sessions()` | `list[Session]` | 获取会话列表 |
-| `.download(session)` | `dict \| None` | 下载单个会话的完整记录 |
+| `.download(s)` | `dict\|None` | 下载单个会话 |
 
 ### `path_safe(text, max_len=240)`
 
-将字符串转换为合法的文件名，替换非法字符为 `_`。
+文件名安全处理，非法字符→`_`。
 
-## 注意事项
-
-- 会话标题中的 `\ / : * ? " < > |` 等字符会被替换为下划线
-- 空标题会话使用 `default` 作为文件名
-- 遇到 409 状态码会自动等待 1 秒后重试（最多 5 次）
-- 请勿频繁运行，避免触发反爬机制
-
-## 敏感数据存储建议
-
-**`.crt` 文件不适合存储敏感数据。** `.crt` 是 X.509 数字证书的标准扩展名，设计用途是存放**公钥证书**（本身就是公开信息）。用它存敏感数据有几个问题：
-
-| 问题 | 说明 |
-|------|------|
-| 语义误导 | 看到 `.crt` 会以为是证书，容易误判 |
-| 容易泄露 | 证书文件通常被提交到仓库，不在 `.gitignore` 习惯中 |
-| 无加密 | 改扩展名不等于加密，数据仍然是明文 |
-
-### 推荐方案
-
-| 方式 | 适用场景 |
-|------|----------|
-| 直接传参 | 临时使用、脚本内调用 |
-| 环境变量 | CI/CD、容器化环境 |
-| `config.py`（加入 .gitignore） | 本地开发，写入后不会被提交 |
-| `.env` 文件 + `python-dotenv` | 最通用的本地配置方案 |
-
-**示例 — `config.py`：**
-
-```python
-# config.py（已在 .gitignore 中，不会被提交到 Git）
-TOKEN = "your-token-here"
-COOKIE = "your-cookie-here"
-```
-
-```python
-# 调用时导入
-from config import TOKEN, COOKIE
-from aichat_histdl import Downloader
-
-Downloader(token=TOKEN, cookie=COOKIE).run()
-```
+---
 
 ## 免责声明
 
-本工具仅供个人学习、备份聊天记录使用。请勿用于非法用途，使用前请确保符合 DeepSeek 的服务条款。
+仅供个人学习与备份使用。请勿用于非法用途，确保符合 DeepSeek 及知乎服务条款。

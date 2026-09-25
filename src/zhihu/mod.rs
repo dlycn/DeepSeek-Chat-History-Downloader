@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use reqwest;
+use reqwest::header::HeaderMap;
 use serde_json::Value;
-use crate::config;
-
 
 pub fn init_urls() -> HashMap<&'static str, &'static str> {
     let mut urls = HashMap::new();
@@ -23,11 +22,11 @@ pub fn init_urls() -> HashMap<&'static str, &'static str> {
     urls
 }
 
-pub async fn get_from_id(url: &str) -> String {
+pub async fn get_from_id(url: &str, headers: HeaderMap) -> String {
     let client = reqwest::Client::new();
     let resp = client
         .get(url)
-        .headers(config::build_headers())
+        .headers(headers)
         .send()
         .await
         .unwrap();

@@ -1,5 +1,5 @@
 [package]
-name = "ai-chat-history-dl"
+name = "aichdl"
 
 
 [package.version]
@@ -29,3 +29,14 @@ workspace = true
 
 [dependencies.serde_json]
 workspace = true
+
+[dependencies.serde]
+workspace = true
+features = ["derive"]
+
+[dependencies.toml]
+workspace = true
+
+[dependencies.clap]
+version = "4"
+features = ["derive"]
