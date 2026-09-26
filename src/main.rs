@@ -1,3 +1,10 @@
+// MCP Server: zhihu-daily
+// 协议: Model Context Protocol (MCP)
+//   - 官方站点: https://modelcontextprotocol.io
+//   - 协议规范: https://spec.modelcontextprotocol.io
+//   - GitHub:   https://github.com/modelcontextprotocol/specification
+// 传输: stdio (JSON-RPC 2.0)
+// 版本: 2024-11-05
 mod analyzer;
 mod config;
 mod ds_parser;
@@ -11,6 +18,8 @@ use std::io::{self, BufRead, Write};
 
 #[tokio::main]
 async fn main() {
+    let _lock = acquire_singleton_lock();
+
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
@@ -64,6 +73,8 @@ async fn handle_request(request: &Value) -> Option<Value> {
                 }
             }
         })),
+
+        _ if is_notification => None,
 
         "tools/list" => Some(json!({
             "jsonrpc": "2.0",
@@ -173,8 +184,6 @@ async fn handle_request(request: &Value) -> Option<Value> {
             }))
         }
 
-        _ if is_notification => None,
-
         _ => Some(json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -245,7 +254,7 @@ async fn handle_daily(args: &Value) -> String {
     }
 
     match (&settings.zhihu_cookie, &settings.zhihu_xsrf) {
-        (Some(cookie), Some(xsrf)) => {
+        (cookie, xsrf) if !cookie.is_empty() && !xsrf.is_empty() => {
             let headers = config::build_headers(cookie, xsrf);
             let urls = zhihu::init_urls();
             let body = zhihu::get_from_id(urls.get("question").unwrap(), headers).await;
@@ -266,6 +275,61 @@ async fn handle_daily(args: &Value) -> String {
                 limit,
             ));
             output
+        }
+    }
+}
+
+use std::fs;
+
+fn lock_path() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("mcp.lock")
+}
+
+fn acquire_singleton_lock() -> Option<fs::File> {
+    let path = lock_path();
+    let file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path);
+
+    match file {
+        Ok(f) => {
+            let _ = fs::write(&path, std::process::id().to_string());
+            Some(f)
+        }
+        Err(_) => {
+            let meta = fs::metadata(&path);
+            let is_stale = meta.as_ref().map_or(true, |m| {
+                m.modified().map_or(true, |t| {
+                    t.elapsed().map_or(true, |d| d.as_secs() > 300)
+                })
+            });
+
+            if is_stale {
+                let _ = fs::remove_file(&path);
+                match fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&path)
+                {
+                    Ok(f) => {
+                        let _ = fs::write(&path, std::process::id().to_string());
+                        return Some(f);
+                    }
+                    Err(e) => {
+                        eprintln!("[fatal] 无法创建锁文件: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            eprintln!("[fatal] 已有 MPC_zhihu.exe 正在运行。锁文件: {}", path.display());
+            eprintln!("[fatal] 如需强制启动，请删除 {} 后重试", path.display());
+            std::process::exit(1);
         }
     }
 }

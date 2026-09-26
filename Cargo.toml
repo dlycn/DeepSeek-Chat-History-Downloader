@@ -37,3 +37,7 @@ features = ["derive"]
 
 [dependencies.toml]
 workspace = true
+
+[[bin]]
+name = "MPC_zhihu"
+path = "src/main.rs"

@@ -1,23 +1,36 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 static LOGGER: std::sync::LazyLock<Mutex<File>> =
     std::sync::LazyLock::new(|| Mutex::new(open_log_file()));
 
-const LOG_FILE: &str = "mcp.log";
 const MAX_RESPONSE_LEN: usize = 600;
+const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
+
+fn log_path() -> PathBuf {
+    base_dir().join("mcp.log")
+}
+
+fn base_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
 
 fn open_log_file() -> File {
-    if fs::metadata(LOG_FILE).ok().map_or(false, |m| m.len() > 5 * 1024 * 1024) {
-        let _ = fs::remove_file(LOG_FILE);
+    let path = log_path();
+    if fs::metadata(&path).ok().map_or(false, |m| m.len() > MAX_FILE_SIZE) {
+        let _ = fs::remove_file(&path);
     }
 
     let mut f = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(LOG_FILE)
-        .expect("无法创建日志文件 mcp.log");
+        .open(&path)
+        .expect(&format!("无法创建日志文件 {}", path.display()));
 
     let now = chrono_diy();
     writeln!(

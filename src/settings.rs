@@ -1,8 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 
-const SETTINGS_FILE: &str = "settings.toml";
+fn base_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn settings_path() -> PathBuf {
+    base_dir().join("settings.toml")
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -10,46 +19,68 @@ pub struct Settings {
     pub deepseek_dir: String,
 
     #[serde(default)]
-    pub zhihu_cookie: Option<String>,
+    pub zhihu_cookie: String,
 
     #[serde(default)]
-    pub zhihu_xsrf: Option<String>,
+    pub zhihu_xsrf: String,
 }
 
 fn default_deepseek_dir() -> String {
-    "deepseek".to_string()
+    base_dir()
+        .join("deepseek")
+        .to_string_lossy()
+        .to_string()
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             deepseek_dir: default_deepseek_dir(),
-            zhihu_cookie: None,
-            zhihu_xsrf: None,
+            zhihu_cookie: String::new(),
+            zhihu_xsrf: String::new(),
         }
     }
 }
 
 pub fn load_or_init() -> Settings {
-    if Path::new(SETTINGS_FILE).exists() {
-        match fs::read_to_string(SETTINGS_FILE) {
+    let path = settings_path();
+    if path.exists() {
+        match fs::read_to_string(&path) {
             Ok(content) => match toml::from_str(&content) {
                 Ok(s) => {
                     return s;
                 }
-                Err(e) => eprintln!("[config] {} 解析失败: {}", SETTINGS_FILE, e),
+                Err(e) => {
+                    eprintln!(
+                        "[config] {} 解析失败: {}",
+                        path.display(),
+                        e
+                    )
+                }
             },
-            Err(e) => eprintln!("[config] 读取 {} 失败: {}", SETTINGS_FILE, e),
+            Err(e) => eprintln!("[config] 读取 {} 失败: {}", path.display(), e),
         }
     }
 
-    Settings::default()
+    let defaults = Settings::default();
+    match toml::to_string_pretty(&defaults) {
+        Ok(content) => {
+            if let Err(e) = fs::write(&path, &content) {
+                eprintln!("[config] 写入默认配置 {} 失败: {}", path.display(), e);
+            } else {
+                eprintln!("[config] 已创建默认配置文件: {}", path.display());
+            }
+        }
+        Err(e) => eprintln!("[config] 序列化默认配置失败: {}", e),
+    }
+    defaults
 }
 
 pub fn save_settings(settings: &Settings) -> String {
+    let path = settings_path();
     let toml_str = toml::to_string_pretty(settings).unwrap();
-    fs::write(SETTINGS_FILE, &toml_str).unwrap();
-    SETTINGS_FILE.to_string()
+    fs::write(&path, &toml_str).unwrap();
+    path.to_string_lossy().to_string()
 }
 
 pub fn apply_and_save(
@@ -63,18 +94,10 @@ pub fn apply_and_save(
         settings.deepseek_dir = dir.to_string();
     }
     if let Some(cookie) = zhihu_cookie {
-        if cookie.is_empty() {
-            settings.zhihu_cookie = None;
-        } else {
-            settings.zhihu_cookie = Some(cookie.to_string());
-        }
+        settings.zhihu_cookie = cookie.to_string();
     }
     if let Some(xsrf) = zhihu_xsrf {
-        if xsrf.is_empty() {
-            settings.zhihu_xsrf = None;
-        } else {
-            settings.zhihu_xsrf = Some(xsrf.to_string());
-        }
+        settings.zhihu_xsrf = xsrf.to_string();
     }
 
     let file = save_settings(&settings);
@@ -83,7 +106,7 @@ pub fn apply_and_save(
     report.push_str(&format!("- deepseek_dir: {}\n", settings.deepseek_dir));
     report.push_str(&format!(
         "- zhihu_cookie: {}\n",
-        if settings.zhihu_cookie.is_some() {
+        if !settings.zhihu_cookie.is_empty() {
             "已配置"
         } else {
             "未配置"
@@ -91,16 +114,11 @@ pub fn apply_and_save(
     ));
     report.push_str(&format!(
         "- zhihu_xsrf: {}",
-        if settings.zhihu_xsrf.is_some() {
+        if !settings.zhihu_xsrf.is_empty() {
             "已配置"
         } else {
             "未配置"
         }
     ));
-
-    if settings.zhihu_cookie.is_none() {
-        report.push_str("\n⚠ 未配置知乎凭据，daily 将仅做本地分析。");
-    }
-
     report
 }

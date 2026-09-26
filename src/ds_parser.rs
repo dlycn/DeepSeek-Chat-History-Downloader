@@ -39,8 +39,14 @@ pub fn parse_session_detail(dir: &str, title_keyword: &str) -> Option<SessionDet
         if path.extension().map_or(true, |e| e != "json") {
             continue;
         }
-        let content = fs::read_to_string(&path).ok()?;
-        let history: ChatHistory = serde_json::from_str(&content).ok()?;
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let history: ChatHistory = match serde_json::from_str(&content) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
         let session_title = history
             .data
             .biz_data

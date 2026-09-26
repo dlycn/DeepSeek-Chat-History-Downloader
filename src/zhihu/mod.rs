@@ -24,30 +24,33 @@ pub fn init_urls() -> HashMap<&'static str, &'static str> {
 
 pub async fn get_from_id(url: &str, headers: HeaderMap) -> String {
     let client = reqwest::Client::new();
-    let resp = client
-        .get(url)
-        .headers(headers)
-        .send()
-        .await
-        .unwrap();
-    let body = resp.text().await.unwrap();
-    body
+    match client.get(url).headers(headers).send().await {
+        Ok(resp) => resp.text().await.unwrap_or_default(),
+        Err(_) => String::new(),
+    }
 }
 
 pub fn get_question_list(base: String) -> Vec<[String;2]> {
     let mut article_list = Vec::new();
-    let json: Value = serde_json::from_str(&base).unwrap();
+    let json: Value = match serde_json::from_str(&base) {
+        Ok(v) => v,
+        Err(e) => {
+            let snippet: String = base.chars().take(200).collect();
+            article_list.push(["ERR".to_string(), format!("JSON解析失败: {}. 前200字: {}", e, snippet)]);
+            return article_list;
+        }
+    };
     if let Some(data) = json["data"].as_array() {
         for item in data {
             if let (Some(url), Some(title)) =
                 (item["question"]["id"].as_str(), item["question"]["title"].as_str())
             {
-                article_list.push([
-                    url.to_string(),
-                    title.to_string(),
-                ]);
+                article_list.push([url.to_string(), title.to_string()]);
             }
         }
+    }
+    if article_list.is_empty() {
+        article_list.push(["ERR".to_string(), "知乎API返回数据为空或结构异常".to_string()]);
     }
     article_list
 }
