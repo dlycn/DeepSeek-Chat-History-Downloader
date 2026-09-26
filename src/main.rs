@@ -1,101 +1,248 @@
 mod analyzer;
 mod config;
 mod ds_parser;
+mod logger;
 mod settings;
 mod types;
 mod zhihu;
 
-use clap::{Parser, Subcommand};
-use settings::Settings;
-
-#[derive(Parser)]
-#[command(name = "zhihu-daily", about = "知乎日常助手: 解析DS对话, 匹配知乎问题, 生成回答建议")]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    Init,
-    Parse {
-        #[arg(short, long)]
-        dir: Option<String>,
-    },
-    Daily {
-        #[arg(short, long)]
-        dir: Option<String>,
-    },
-}
+use serde_json::{json, Value};
+use std::io::{self, BufRead, Write};
 
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
 
-    match cli.command {
-        Command::Init => cmd_init(),
-        Command::Parse { dir } => {
-            let settings = settings::load_or_init();
-            let d = dir.as_deref().unwrap_or(&settings.deepseek_dir);
-            cmd_parse(d);
-        }
-        Command::Daily { dir } => {
-            let settings = settings::load_or_init();
-            let d = dir.as_deref().unwrap_or(&settings.deepseek_dir);
-            cmd_daily(d, &settings).await;
-        }
-    }
-}
-
-fn cmd_init() {
-    settings::run_init();
-}
-
-fn cmd_parse(dir: &str) {
-    let questions = ds_parser::parse_dir(dir);
-    let total_q = ds_parser::total_questions(&questions);
-    let total_s = ds_parser::total_sessions(&questions);
-    let profile = analyzer::build_profile(&questions);
-
-    println!("# DeepSeek 对话分析报告\n");
-    println!("**会话数**: {}", total_s);
-    println!("**提问数**: {}\n", total_q);
-    println!("## 兴趣领域分布\n");
-    for (i, topic) in profile.topics.iter().enumerate() {
-        let sample = profile
-            .sample_questions
-            .get(i)
-            .map(|s| s.as_str())
-            .unwrap_or("");
-        println!("- **{}**: {}", topic, sample);
-    }
-    println!("\n## 提问特征\n");
-    println!("- 平均提问长度: {:.0} 字", profile.avg_question_len);
-
-    println!("\n## 可提取的知乎候选问题\n");
-    for q in &questions {
-        let short = if q.question.len() > 60 {
-            format!("{}...", &q.question[..57])
-        } else {
-            q.question.clone()
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
         };
-        println!("- [{}] {}", q.session_title, short);
+
+        if line.is_empty() {
+            continue;
+        }
+
+        let request: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[mcp] JSON parse error: {}", e);
+                continue;
+            }
+        };
+
+        logger::log_input(&line);
+
+        if let Some(response) = handle_request(&request).await {
+            if let Ok(response_str) = serde_json::to_string(&response) {
+                logger::log_output(&response_str);
+                writeln!(stdout, "{}", response_str).unwrap();
+                stdout.flush().unwrap();
+            }
+        }
     }
 }
 
-async fn cmd_daily(dir: &str, settings: &Settings) {
-    let questions = ds_parser::parse_dir(dir);
-    let profile = analyzer::build_profile(&questions);
+async fn handle_request(request: &Value) -> Option<Value> {
+    let method = request["method"].as_str().unwrap_or("");
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let is_notification = request.get("id").is_none();
 
-    println!("# 知乎日常任务 ({})\n", chrono_or_naive());
+    let result = match method {
+        "initialize" => Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "zhihu-daily",
+                    "version": "1.0.0"
+                }
+            }
+        })),
 
-    println!("## 用户画像\n");
-    println!("- 兴趣领域: {}", profile.topics.join(", "));
-    println!(
-        "- 基于 {} 个会话, {} 条提问分析\n",
-        ds_parser::total_sessions(&questions),
-        profile.question_count
-    );
+        "tools/list" => Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "zhihu_init",
+                        "description": "配置知乎凭据（Cookie 和 x-xsrftoken）。保存到 settings.toml",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "deepseek_dir": {
+                                    "type": "string",
+                                    "description": "DeepSeek 对话 JSON 目录路径"
+                                },
+                                "zhihu_cookie": {
+                                    "type": "string",
+                                    "description": "知乎 Cookie 完整值（从浏览器 F12 → Network 复制）"
+                                },
+                                "zhihu_xsrf": {
+                                    "type": "string",
+                                    "description": "知乎 x-xsrftoken（Cookie 中 _xsrf= 的值）"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "name": "zhihu_parse",
+                        "description": "扫描 DS 对话目录，输出所有会话摘要（标题+提问示例+统计）。不做关键词匹配，交给 AI 分析。默认展示最近 50 个会话",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "dir": {
+                                    "type": "string",
+                                    "description": "DS 对话 JSON 目录，默认使用 settings.toml 中的 deepseek_dir"
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "description": "展示会话数上限，默认 50"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "name": "zhihu_session",
+                        "description": "按标题关键词搜索并返回某个会话的完整详情（含所有对话轮次，每段截断至 500 字）",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "dir": {
+                                    "type": "string",
+                                    "description": "DS 对话 JSON 目录"
+                                },
+                                "title": {
+                                    "type": "string",
+                                    "description": "会话标题关键词（模糊匹配）"
+                                }
+                            },
+                            "required": ["title"]
+                        }
+                    },
+                    {
+                        "name": "zhihu_daily",
+                        "description": "完整日常：导出会话摘要 + 拉取知乎推荐问题列表，交给 AI 做兴趣匹配和回答生成。需先通过 zhihu_init 配置知乎凭据",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "dir": {
+                                    "type": "string",
+                                    "description": "DS 对话 JSON 目录，默认使用 settings.toml 中的 deepseek_dir"
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "description": "展示会话数上限，默认 50"
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        })),
+
+        "tools/call" => {
+            let tool_name = request["params"]["name"].as_str().unwrap_or("");
+            let tool_args = &request["params"]["arguments"];
+
+            let text = match tool_name {
+                "zhihu_init" => handle_init(tool_args),
+                "zhihu_parse" => handle_parse(tool_args),
+                "zhihu_session" => handle_session(tool_args),
+                "zhihu_daily" => handle_daily(tool_args).await,
+                _ => format!("未知工具: {}", tool_name),
+            };
+
+            Some(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": text
+                        }
+                    ]
+                }
+            }))
+        }
+
+        _ if is_notification => None,
+
+        _ => Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": -32601,
+                "message": format!("不支持的方法: {}", method)
+            }
+        })),
+    };
+
+    result
+}
+
+fn handle_init(args: &Value) -> String {
+    let deepseek_dir = args["deepseek_dir"].as_str();
+    let zhihu_cookie = args["zhihu_cookie"].as_str();
+    let zhihu_xsrf = args["zhihu_xsrf"].as_str();
+
+    settings::apply_and_save(deepseek_dir, zhihu_cookie, zhihu_xsrf)
+}
+
+fn handle_parse(args: &Value) -> String {
+    let settings = settings::load_or_init();
+    let dir = args["dir"].as_str().unwrap_or(&settings.deepseek_dir);
+    let limit = args["limit"].as_u64().unwrap_or(50) as usize;
+
+    let total_count = ds_parser::count_all_sessions(dir);
+    let summaries = ds_parser::parse_dir_summaries(dir, limit);
+
+    if summaries.is_empty() {
+        return format!(
+            "未在目录 `{}` 中找到 DS 对话 JSON 文件。请确认路径正确。",
+            dir
+        );
+    }
+
+    analyzer::format_session_list(&summaries, total_count, limit)
+}
+
+fn handle_session(args: &Value) -> String {
+    let settings = settings::load_or_init();
+    let dir = args["dir"].as_str().unwrap_or(&settings.deepseek_dir);
+    let title = args["title"].as_str().unwrap_or("");
+
+    if title.is_empty() {
+        return "请提供会话标题关键词 (title 参数)。例如: zhihu_session(title=\"Rust\")".to_string();
+    }
+
+    match ds_parser::parse_session_detail(dir, title) {
+        Some(detail) => analyzer::format_session_detail(&detail),
+        None => format!("未找到标题包含 \"{}\" 的会话。请尝试其他关键词。", title),
+    }
+}
+
+async fn handle_daily(args: &Value) -> String {
+    let settings = settings::load_or_init();
+    let dir = args["dir"].as_str().unwrap_or(&settings.deepseek_dir);
+    let limit = args["limit"].as_u64().unwrap_or(50) as usize;
+
+    let total_count = ds_parser::count_all_sessions(dir);
+    let summaries = ds_parser::parse_dir_summaries(dir, limit);
+
+    if summaries.is_empty() {
+        return format!(
+            "未在目录 `{}` 中找到 DS 对话 JSON 文件。请确认路径正确。",
+            dir
+        );
+    }
 
     match (&settings.zhihu_cookie, &settings.zhihu_xsrf) {
         (Some(cookie), Some(xsrf)) => {
@@ -104,52 +251,21 @@ async fn cmd_daily(dir: &str, settings: &Settings) {
             let body = zhihu::get_from_id(urls.get("question").unwrap(), headers).await;
             let zhihu_questions = zhihu::get_question_list(body);
 
-            let tasks = analyzer::match_with_zhihu(&profile, &zhihu_questions);
-
-            println!("## 匹配的知乎问题\n");
-            if tasks.is_empty() {
-                println!("暂无匹配的问题, 以下是全部知乎推荐:\n");
-                for [id, title] in &zhihu_questions {
-                    println!("- `{}`: {}", id, title);
-                }
-            } else {
-                for task in &tasks {
-                    println!("### {}", task.zhihu_title);
-                    println!("- ID: `{}`", task.zhihu_question_id);
-                    println!("- 关联度: {}", task.relevance);
-                    println!("- 建议角度: {}", task.suggested_angle);
-                    println!("- 用户相关话题: {}\n", task.related_ds_topics.join(", "));
-                }
-            }
+            analyzer::format_zhihu_for_ai(&zhihu_questions, &summaries, total_count, limit)
         }
         _ => {
-            println!("## 知乎问题\n");
-            println!("未配置知乎凭据，无法拉取推荐问题。");
-            println!("请运行 `init` 命令配置 Cookie 后重试。\n");
-            println!("以下是基于 DS 对话的候选问题供参考:\n");
-            for q in &questions {
-                let short = if q.question.len() > 80 {
-                    format!("{}...", &q.question[..77])
-                } else {
-                    q.question.clone()
-                };
-                println!("- [{}] {}", q.session_title, short);
-            }
+            let mut output = String::new();
+            output.push_str("## 未配置知乎凭据\n\n");
+            output.push_str(
+                "请先通过 `zhihu_init` 工具配置 Cookie 后重试。\n\n",
+            );
+            output.push_str("以下仅展示 DS 会话分析:\n\n");
+            output.push_str(&analyzer::format_session_list(
+                &summaries,
+                total_count,
+                limit,
+            ));
+            output
         }
     }
-
-    println!("\n---");
-    println!("*请 AI 助手根据上述任务列表, 对匹配的问题逐个生成 100 字以内的 Markdown 回答。*");
-}
-
-fn chrono_or_naive() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let days_since_epoch = secs / 86400;
-    let time_of_day = secs % 86400;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    format!("第{}天 {:02}:{:02}", days_since_epoch, hours, minutes)
 }

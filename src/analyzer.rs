@@ -1,113 +1,126 @@
-use std::collections::HashMap;
+use crate::types::{SessionDetail, SessionSummary};
 
-use crate::types::{DailyTask, TopicProfile, UserQuestion};
+pub fn format_session_list(
+    summaries: &[SessionSummary],
+    total_count: usize,
+    limit: usize,
+) -> String {
+    let mut output = String::new();
+    output.push_str(&format!(
+        "# 会话概览（共 {} 个会话，展示最近 {} 个）\n\n",
+        total_count, limit
+    ));
+    output.push_str("## 全局统计\n\n");
+    output.push_str(&format!("- 目录中总会话数: {}\n", total_count));
+    output.push_str(&format!(
+        "- 已加载摘要: {} 个\n",
+        summaries.len()
+    ));
 
-const TOPIC_KEYWORDS: &[(&str, &[&str])] = &[
-    ("Rust编程", &["rust", "借用", "所有权", "trait", "枚举", "异步", "tokio", "cargo", "生命周期", "宏", "move", "引用"]),
-    ("游戏开发", &["bevy", "游戏", "渲染", "物理", "碰撞", "2d", "3d", "动画", "着色器", "avian"]),
-    ("前端/GUI", &["tauri", "前端", "gui", "web", "html", "css", "ui", "界面", "窗口", "组件"]),
-    ("工具链/DevOps", &["git", "ssh", "sql", "数据库", "命令行", "部署", "docker", "编译", "构建"]),
-    ("社会人文", &["矛盾", "社会", "政治", "家庭", "婆媳", "关系", "时代", "平等", "权利", "女性"]),
-    ("数学/科学", &["数学", "公式", "证明", "物理", "科学", "模拟", "计算", "几何", "函数"]),
-    ("生活消费", &["推荐", "便宜", "好用", "购买", "山姆", "超市", "日常", "穿", "穿穿"]),
-    ("AI/机器学习", &["ai", "智能", "tensorboard", "训练", "模型", "深度学习", "神经网络", "机器学习"]),
-    ("哲学/思辨", &["哲学", "存在", "意识", "世界", "唯心", "唯物", "假说", "感知"]),
-    ("Android/移动", &["android", "蓝牙", "手机", "app", "音量", "安卓"]),
-];
+    let total_q: usize = summaries.iter().map(|s| s.question_count).sum();
+    output.push_str(&format!("- 已加载会话总提问数: {}\n", total_q));
 
-pub fn build_profile(questions: &[UserQuestion]) -> TopicProfile {
-    let mut topic_counts: HashMap<&str, usize> = HashMap::new();
-    let mut topic_samples: HashMap<&str, Vec<String>> = HashMap::new();
-    let mut total_len: f64 = 0.0;
+    let total_chars: usize = summaries.iter().map(|s| s.total_chars).sum();
+    output.push_str(&format!(
+        "- 已加载会话提问总字数: {} (~{:.0}KB)\n\n",
+        total_chars,
+        total_chars as f64 / 1000.0
+    ));
 
-    for q in questions {
-        total_len += q.question.len() as f64;
-        let lower = q.question.to_lowercase();
+    output.push_str("## 会话列表\n\n");
 
-        for (topic, keywords) in TOPIC_KEYWORDS {
-            if keywords.iter().any(|kw| lower.contains(kw)) {
-                *topic_counts.entry(topic).or_insert(0) += 1;
-                topic_samples
-                    .entry(topic)
-                    .or_default()
-                    .push(q.question.clone());
-            }
+    for (i, s) in summaries.iter().enumerate() {
+        output.push_str(&format!("### {}. {}\n", i + 1, s.title));
+        output.push_str(&format!("- 时间: {}\n", s.updated_at));
+        output.push_str(&format!("- 提问数: {}\n", s.question_count));
+        output.push_str("- 提问示例:\n");
+        for q in &s.sample_questions {
+            output.push_str(&format!("  - \"{}\"\n", q));
+        }
+        output.push('\n');
+    }
+
+    if total_count > limit {
+        output.push_str(&format!(
+            "⚠ 仅展示了最近 {} / {} 个会话。如需查看更多，请用 `zhihu_session` 按标题关键词搜索指定会话的详情。\n",
+            summaries.len(),
+            total_count
+        ));
+    }
+
+    output
+}
+
+pub fn format_session_detail(detail: &SessionDetail) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("# {}\n\n", detail.title));
+    output.push_str(&format!("更新时间: {}\n\n", detail.updated_at));
+    output.push_str("---\n\n");
+
+    for turn in &detail.turns {
+        if turn.role == "USER" {
+            output.push_str(&format!("### ❓ 用户提问\n{}\n\n", turn.content));
+        } else {
+            output.push_str(&format!("### 🤖 AI 回复\n{}\n\n", turn.content));
         }
     }
 
-    let mut sorted: Vec<(&str, usize)> = topic_counts.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    output.push_str(&format!(
+        "\n---\n*共 {} 轮对话，内容已截断至每段 500 字*\n",
+        detail.turns.len()
+    ));
 
-    let topics: Vec<String> = sorted.iter().map(|(t, _)| t.to_string()).collect();
-    let sample_questions: Vec<String> = sorted
-        .iter()
-        .filter_map(|(t, _)| {
-            topic_samples
-                .get(t)
-                .and_then(|s| s.first().cloned())
-        })
-        .collect();
-
-    TopicProfile {
-        topics,
-        question_count: questions.len(),
-        avg_question_len: if questions.is_empty() {
-            0.0
-        } else {
-            total_len / questions.len() as f64
-        },
-        sample_questions,
-    }
+    output
 }
 
-pub fn match_with_zhihu(
-    profile: &TopicProfile,
+pub fn format_zhihu_for_ai(
     zhihu_questions: &[[String; 2]],
-) -> Vec<DailyTask> {
-    zhihu_questions
-        .iter()
-        .filter_map(|q| {
-            let title_lower = q[1].to_lowercase();
-            let mut matched_topics: Vec<String> = Vec::new();
+    summaries: &[SessionSummary],
+    total_count: usize,
+    limit: usize,
+) -> String {
+    let mut output = String::new();
 
-            for topic in &profile.topics {
-                for (t, keywords) in TOPIC_KEYWORDS {
-                    if *t == topic.as_str()
-                        && keywords
-                            .iter()
-                            .any(|kw| title_lower.contains(kw))
-                    {
-                        matched_topics.push(topic.clone());
-                        break;
-                    }
-                }
-            }
+    output.push_str("# 知乎日常 — 原始数据\n\n");
 
-            if matched_topics.is_empty() {
-                return None;
-            }
+    output.push_str("## 用户会话上下文\n\n");
+    output.push_str("以下是你最近和最频繁的 DS 对话主题摘要，请在匹配时参考这些上下文:\n\n");
+    for (i, s) in summaries.iter().enumerate().take(10) {
+        output.push_str(&format!(
+            "{}. **{}** ({} 条提问)\n",
+            i + 1,
+            s.title,
+            s.question_count
+        ));
+        for q in &s.sample_questions {
+            output.push_str(&format!("   - \"{}\"\n", q));
+        }
+    }
+    output.push('\n');
 
-            let relevance = format!(
-                "匹配用户兴趣领域: {}",
-                matched_topics.join(", ")
-            );
+    output.push_str("## 知乎推荐问题\n\n");
+    output.push_str(&format!(
+        "共拉取 {} 个推荐问题（关联度需由你结合上下文判断）:\n\n",
+        zhihu_questions.len()
+    ));
 
-            let suggested_angle = match matched_topics.first() {
-                Some(t) if t == "Rust编程" => "从工程实践角度切入".to_string(),
-                Some(t) if t == "游戏开发" => "从开发者经验角度分享".to_string(),
-                Some(t) if t == "社会人文" => "结合社会观察展开分析".to_string(),
-                Some(t) if t == "生活消费" => "以实际体验给出建议".to_string(),
-                Some(t) if t == "工具链/DevOps" => "从效率提升角度说明".to_string(),
-                _ => "从个人经验出发回答".to_string(),
-            };
+    for [id, title] in zhihu_questions {
+        output.push_str(&format!("- `{}` | **{}**\n", id, title));
+    }
 
-            Some(DailyTask {
-                zhihu_question_id: q[0].clone(),
-                zhihu_title: q[1].clone(),
-                relevance,
-                related_ds_topics: matched_topics,
-                suggested_angle,
-            })
-        })
-        .collect()
+    output.push_str("\n---\n");
+    output.push_str("## 给你的指令\n\n");
+    output.push_str("请根据以下 SKILL.md 规则处理上述数据:\n\n");
+    output.push_str("1. 分析会话摘要，识别用户的**5-8 个核心兴趣领域**\n");
+    output.push_str("2. 从知乎推荐中挑出与兴趣相关的 TOP 3 问题\n");
+    output.push_str("3. 对每个匹配问题生成 **100 字 Markdown 回答**\n");
+    output.push_str("4. 回答风格: 技术类偏工程实践、社会人文类点明矛盾、消费类以实际体验为依据\n");
+    output.push_str("5. 从剩余问题中选一条用户可能会问的作为 **今日提问**\n");
+    output.push_str("6. 格式: ## 今日回答 / Q: ... / A: ... / ## 今日提问\n");
+    output.push_str(&format!(
+        "\n*会话共 {} 个（本次加载 {} 个），如需某个会话的完整详情请调用 `zhihu_session`。*\n",
+        total_count, limit
+    ));
+
+    output
 }

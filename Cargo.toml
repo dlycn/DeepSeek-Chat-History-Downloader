@@ -23,6 +23,7 @@ workspace = true
 
 [dependencies.tokio]
 workspace = true
+features = ["io-util", "rt"]
 
 [dependencies.scraper]
 workspace = true
@@ -36,7 +37,3 @@ features = ["derive"]
 
 [dependencies.toml]
 workspace = true
-
-[dependencies.clap]
-version = "4"
-features = ["derive"]

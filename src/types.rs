@@ -36,26 +36,21 @@ pub struct Fragment {
     pub content: String,
 }
 
-#[derive(Debug)]
-pub struct UserQuestion {
-    pub session_title: String,
-    pub question: String,
-    pub message_id: i64,
-}
-
-#[derive(Debug)]
-pub struct TopicProfile {
-    pub topics: Vec<String>,
+pub struct SessionSummary {
+    pub title: String,
+    pub updated_at: String,
     pub question_count: usize,
-    pub avg_question_len: f64,
     pub sample_questions: Vec<String>,
+    pub total_chars: usize,
 }
 
-#[derive(Debug)]
-pub struct DailyTask {
-    pub zhihu_question_id: String,
-    pub zhihu_title: String,
-    pub relevance: String,
-    pub related_ds_topics: Vec<String>,
-    pub suggested_angle: String,
+pub struct SessionDetail {
+    pub title: String,
+    pub updated_at: String,
+    pub turns: Vec<ConversationTurn>,
+}
+
+pub struct ConversationTurn {
+    pub role: String,
+    pub content: String,
 }
