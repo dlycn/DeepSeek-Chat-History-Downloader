@@ -26,10 +26,7 @@ use std::{io::{self, BufRead, Write}};
 async fn main() {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    let logger = logger::McpLogger::init(
-        "logs",
-        "mcp",
-    );
+    let logger = logger::McpLogger::init("mcp");
     logger.log("logger initialize");
     for line in stdin.lock().lines() {
         let line =  match line {

@@ -1,5 +1,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::option;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -94,10 +95,11 @@ pub struct McpLogger {
 }
 
 impl McpLogger {
-    pub fn init(dir: &str, file: &str) -> Self {
+    pub fn init(file: &str) -> Self {
+        let dir = base_dir().join("logs");
         Self {
-            _guard: Self::init_tracing(dir, file),
-            cutlen: usize::MAX,      // 默认不截断，比 u16::MAX 语义更清楚
+            _guard: Self::init_tracing(&dir.to_string_lossy(), file),
+            cutlen: usize::MAX,
         }
     }
 
@@ -157,3 +159,4 @@ impl McpLogger {
         guard
     }
 }
+
