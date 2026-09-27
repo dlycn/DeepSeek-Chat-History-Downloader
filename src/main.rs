@@ -14,38 +14,46 @@ mod types;
 mod zhihu;
 
 use serde_json::{json, Value};
-use std::io::{self, BufRead, Write};
+use std::{io::{self, BufRead, Write}};
 
+
+
+// 注意: 本 MCP 服务不限制实例数量，Trae 与前台同时运行多个实例时，
+// 共享文件（settings.toml / mcp.log）可能出现数据竞争或内容交错。
+// 请勿同时运行多个 MPC_zhihu.exe 实例。
+// NOTE: No singleton lock – concurrent instances may race on shared files.
 #[tokio::main]
 async fn main() {
-    let _lock = acquire_singleton_lock();
-
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-
+    let logger = logger::McpLogger::init(
+        "logs",
+        "mcp",
+    );
+    logger.log("logger initialize");
     for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break,
+        let line =  match line {
+            Ok(line) => line,
+            Err(e) => {
+                tracing::error!("Error reading line: {}", e);
+                continue;
+            }
         };
-
-        if line.is_empty() {
-            continue;
-        }
+        if line.is_empty() {continue;}
 
         let request: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("[mcp] JSON parse error: {}", e);
+               tracing::error!("JSON parse error: {}", e);
                 continue;
             }
         };
 
-        logger::log_input(&line);
+        logger.input(&line);
 
         if let Some(response) = handle_request(&request).await {
             if let Ok(response_str) = serde_json::to_string(&response) {
-                logger::log_output(&response_str);
+                logger.output(&response_str);
                 writeln!(stdout, "{}", response_str).unwrap();
                 stdout.flush().unwrap();
             }
@@ -275,61 +283,6 @@ async fn handle_daily(args: &Value) -> String {
                 limit,
             ));
             output
-        }
-    }
-}
-
-use std::fs;
-
-fn lock_path() -> std::path::PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("mcp.lock")
-}
-
-fn acquire_singleton_lock() -> Option<fs::File> {
-    let path = lock_path();
-    let file = fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&path);
-
-    match file {
-        Ok(f) => {
-            let _ = fs::write(&path, std::process::id().to_string());
-            Some(f)
-        }
-        Err(_) => {
-            let meta = fs::metadata(&path);
-            let is_stale = meta.as_ref().map_or(true, |m| {
-                m.modified().map_or(true, |t| {
-                    t.elapsed().map_or(true, |d| d.as_secs() > 300)
-                })
-            });
-
-            if is_stale {
-                let _ = fs::remove_file(&path);
-                match fs::OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .open(&path)
-                {
-                    Ok(f) => {
-                        let _ = fs::write(&path, std::process::id().to_string());
-                        return Some(f);
-                    }
-                    Err(e) => {
-                        eprintln!("[fatal] 无法创建锁文件: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-
-            eprintln!("[fatal] 已有 MPC_zhihu.exe 正在运行。锁文件: {}", path.display());
-            eprintln!("[fatal] 如需强制启动，请删除 {} 后重试", path.display());
-            std::process::exit(1);
         }
     }
 }

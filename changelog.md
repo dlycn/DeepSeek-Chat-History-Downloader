@@ -2,8 +2,36 @@
 
 ## [0.4.0] — 2026-09-26
 
-### forward
-- **mcp**开发中
+### Added
+
+- **MCP Server 架构**: 从 CLI 工具完全重写为 MCP (Model Context Protocol) 服务器，基于 JSON-RPC 2.0，stdio 传输
+  - `initialize` → 声明 serverInfo 和 capabilities
+  - `tools/list` → 暴露 4 个工具供 AI 调用
+  - `tools/call` → 路由到对应 handler
+  - 遵守 MCP notification 语义（无 `id` 的请求不响应）
+  - 未知方法返回 `-32601` 标准错误码
+- **`zhihu_session` 工具**: 按标题关键词模糊搜索某个会话的完整详情，含所有对话轮次（USER/ASSISTANT），每段截断至 500 字
+- **`zhihu_parse` 重写**: 不再做关键词匹配，改为输出会话摘要（标题+提问示例+统计）交给 AI 分析；默认展示最近 50 个会话
+- **`zhihu_daily` 重写**: 并行输出用户会话上下文（最多 10 条）+ 知乎推荐问题全量列表（~200 条）+ AI 指令，由 AI 完成兴趣匹配和回答生成
+- **`zhihu_init` 重写**: 支持增量更新（逐项覆盖非空参数），传入空值可清除对应字段
+- **`logger.rs`**: `McpLogger` 结构化日志系统，基于 `tracing` + `tracing-subscriber` + `tracing-appender`，支持 daily rotation、自动截断长响应、最多保留 7 天日志
+- **二进制重命名**: `aichdl` → `MPC_zhihu`，遵循 MCP 命名惯例
+- **SKILL.md 全面重写**: 覆盖 MCP 协议说明、生命周期、4 个工具的完整参数表/输出格式/行为描述、数据模型、工作流程
+
+### Changed
+
+- `main.rs` CLI 入口完全重写为 MCP JSON-RPC 主循环
+- `analyzer.rs`: 移除 10 维度关键词匹配逻辑，新增 `format_session_detail` / `format_zhihu_for_ai` 格式化函数
+- `ds_parser.rs`: 新增 `parse_session_detail` (关键词搜索完整会话) / `count_all_sessions` (全局统计)
+- `types.rs`: 移除 `UserQuestion` / `TopicProfile` / `DailyTask` 旧输出类型，新增 `SessionDetail` / `ConversationTurn`
+- `settings.rs`: `zhihu_cookie` / `zhihu_xsrf` 从 `Option<String>` 改为 `String` 带默认空值；新增 `apply_and_save` 增量更新 / `save_settings` 持久化函数
+- `Cargo.toml`: 新增 `tracing` / `tracing-subscriber` / `tracing-appender` workspace 依赖
+
+### Removed
+
+- 10 维度关键词兴趣画像匹配（`Rust编程` `游戏开发` 等），改为 AI 侧分析
+- CLI `parse` / `daily` / `init` 子命令（由 MCP tools 替代）
+- `TopicProfile` / `UserQuestion` / `DailyTask` 废弃类型
 
 ## [0.3.0] — 2026-09-26
 
