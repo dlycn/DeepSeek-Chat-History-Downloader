@@ -120,6 +120,7 @@ async fn dispatch_tool(name: &str, args: &Value) -> String {
         "zhihu_parse" => handlers::handle_parse(args),
         "zhihu_session" => handlers::handle_session(args),
         "zhihu_daily" => handlers::handle_daily(args).await,
+        "zhihu_fetch" => handlers::handle_fetch(args).await,
         _ => format!("未知工具: {}", name),
     }
 }

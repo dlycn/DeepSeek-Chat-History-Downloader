@@ -48,6 +48,23 @@ pub fn handle_session(args: &Value) -> String {
     }
 }
 
+pub async fn handle_fetch(_args: &Value) -> String {
+    let settings = settings::load_or_init();
+    if settings.zhihu_cookie.is_empty() || settings.zhihu_xsrf.is_empty() {
+        return "未配置知乎凭据，请先通过 zhihu_init 配置 Cookie 和 x-xsrftoken。".to_string();
+    }
+
+    let api = zhihu::Api::run(&settings.zhihu_cookie, &settings.zhihu_xsrf);
+    let questions = api.get_question_list().await;
+
+    let mut output = String::new();
+    for [id, title] in &questions {
+        output.push_str(&format!("{}|{}\n", id, title));
+    }
+
+    output
+}
+
 pub async fn handle_daily(args: &Value) -> String {
     let settings = settings::load_or_init();
     let dir = args["dir"].as_str().unwrap_or(&settings.deepseek_dir);
@@ -67,7 +84,15 @@ pub async fn handle_daily(args: &Value) -> String {
         (cookie, xsrf) if !cookie.is_empty() && !xsrf.is_empty() => {
             let api = zhihu::Api::run(cookie, xsrf);
             let zhihu_questions = api.get_question_list().await;
-            analyzer::format_zhihu_for_ai(&zhihu_questions, &summaries, total_count, limit)
+            let mut output = String::new();
+            output.push_str(&analyzer::format_zhihu_for_ai(&zhihu_questions, &summaries, total_count, limit));
+            let path = settings::base_dir().join("zhihutask.md");
+            if let Err(e) = std::fs::write(&path, &output) {
+                output.push_str(&format!("\n---\n写入缓存文件失败: {}", e));
+            } else {
+                output.push_str(&format!("\n---\n已缓存至 {}", path.display()));
+            }
+            output
         }
         _ => {
             let mut output = String::new();
@@ -99,6 +124,8 @@ pub fn tool_definitions() -> Vec<Value> {
             .prop("dir", "string", "DS 对话 JSON 目录")
             .prop("title", "string", "会话标题关键词（模糊匹配）")
             .required(&["title"])
+            .build(),
+        tool("zhihu_fetch", "拉取知乎推荐问题列表（约 200 条），缓存至 zhihutask.md。需先通过 zhihu_init 配置知乎凭据")
             .build(),
         tool("zhihu_daily", "完整日常：导出会话摘要 + 拉取知乎推荐问题列表，交给 AI 做兴趣匹配和回答生成。需先通过 zhihu_init 配置知乎凭据")
             .prop("dir", "string", "DS 对话 JSON 目录，默认使用 settings.toml 中的 deepseek_dir")
