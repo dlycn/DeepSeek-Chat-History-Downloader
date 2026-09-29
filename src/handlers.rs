@@ -40,11 +40,12 @@ pub fn handle_session(args: &Value) -> String {
     if title.is_empty() {
         return "请提供会话标题关键词 (title 参数)。例如: zhihu_session(title=\"Rust\")"
             .to_string();
-    }
-
-    match ds_parser::parse_session_detail(dir, title) {
-        Some(detail) => analyzer::format_session_detail(&detail),
-        None => format!("未找到标题包含 \"{}\" 的会话。请尝试其他关键词。", title),
+    } else if ds_parser::parse_session_detail(dir, title) == None {
+        return format!("未找到标题包含 \"{}\" 的会话。请尝试其他关键词。", title);
+    } else {
+        let detail = ds_parser::parse_session_detail(dir, title).unwrap();
+        return analyzer::format_session_detail(&detail);
+        
     }
 }
 
