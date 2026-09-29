@@ -65,7 +65,7 @@ impl McpLogger {
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
         tracing_subscriber::registry()
-            .with(EnvFilter::new("MPC_zhihu=info"))
+            .with(EnvFilter::new("MCP_zhihu=info"))
             .with(
                 fmt::layer()
                     .with_ansi(false)

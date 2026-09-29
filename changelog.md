@@ -15,7 +15,7 @@
 - **`zhihu_daily` 重写**: 并行输出用户会话上下文（最多 10 条）+ 知乎推荐问题全量列表（~200 条）+ AI 指令，由 AI 完成兴趣匹配和回答生成
 - **`zhihu_init` 重写**: 支持增量更新（逐项覆盖非空参数），传入空值可清除对应字段
 - **`logger.rs`**: `McpLogger` 结构化日志系统，基于 `tracing` + `tracing-subscriber` + `tracing-appender`，支持 daily rotation、自动截断长响应、最多保留 7 天日志
-- **二进制重命名**: `aichdl` → `MPC_zhihu`，遵循 MCP 命名惯例
+- **二进制重命名**: `aichdl` → `MCP_zhihu`，遵循 MCP 命名惯例
 - **SKILL.md 全面重写**: 覆盖 MCP 协议说明、生命周期、4 个工具的完整参数表/输出格式/行为描述、数据模型、工作流程
 
 ### Changed
