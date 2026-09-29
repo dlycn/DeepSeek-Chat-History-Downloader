@@ -9,7 +9,13 @@ mod zhihu;
 
 use serde_json::Value;
 use std::io::{self, BufRead, Write};
-
+// MCP Server: zhihu-daily
+// 协议: Model Context Protocol (MCP)
+//   - 官方站点: https://modelcontextprotocol.io
+//   - 协议规范: https://spec.modelcontextprotocol.io
+//   - GitHub:   https://github.com/modelcontextprotocol/specification
+// 传输: stdio (JSON-RPC 2.0)
+// 版本: 2024-11-05
 #[tokio::main]
 async fn main() {
     let stdin = io::stdin();
