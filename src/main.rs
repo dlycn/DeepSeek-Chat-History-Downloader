@@ -1,5 +1,4 @@
 mod analyzer;
-mod config;
 mod ds_parser;
 mod handlers;
 mod logger;

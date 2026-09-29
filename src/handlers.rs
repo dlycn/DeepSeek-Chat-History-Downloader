@@ -1,7 +1,6 @@
 use serde_json::{Value, json};
 
 use crate::analyzer;
-use crate::config;
 use crate::ds_parser;
 use crate::settings;
 use crate::zhihu;
@@ -66,11 +65,8 @@ pub async fn handle_daily(args: &Value) -> String {
 
     match (&settings.zhihu_cookie, &settings.zhihu_xsrf) {
         (cookie, xsrf) if !cookie.is_empty() && !xsrf.is_empty() => {
-            let headers = config::build_headers(cookie, xsrf);
-            let urls = zhihu::init_urls();
-            let body = zhihu::get_from_id(urls.get("question").unwrap(), headers).await;
-            let zhihu_questions = zhihu::get_question_list(body);
-
+            let api = zhihu::Api::run(cookie, xsrf);
+            let zhihu_questions = api.get_question_list().await;
             analyzer::format_zhihu_for_ai(&zhihu_questions, &summaries, total_count, limit)
         }
         _ => {
@@ -111,15 +107,15 @@ pub fn tool_definitions() -> Vec<Value> {
     ]
 }
 
+fn tool(name: &'static str, description: &'static str) -> ToolDef {
+    ToolDef { name, description, properties: vec![], required: vec![] }
+}
+
 struct ToolDef {
     name: &'static str,
     description: &'static str,
     properties: Vec<(Value, Value)>,
     required: Vec<&'static str>,
-}
-
-fn tool(name: &'static str, description: &'static str) -> ToolDef {
-    ToolDef { name, description, properties: vec![], required: vec![] }
 }
 
 impl ToolDef {

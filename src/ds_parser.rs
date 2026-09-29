@@ -1,7 +1,13 @@
 use std::fs;
 use std::path::Path;
 
-use crate::types::{ChatHistory, ConversationTurn, SessionDetail, SessionSummary};
+use serde_json::Value;
+
+use crate::types::{ConversationTurn, SessionDetail, SessionSummary};
+
+fn dig<'a>(v: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter().fold(Some(v), |curr, key| curr?.get(key))
+}
 
 pub fn parse_dir_summaries(dir: &str, limit: usize) -> Vec<SessionSummary> {
     let mut summaries = Vec::new();
@@ -39,36 +45,26 @@ pub fn parse_session_detail(dir: &str, title_keyword: &str) -> Option<SessionDet
         if path.extension().map_or(true, |e| e != "json") {
             continue;
         }
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let history: ChatHistory = match serde_json::from_str(&content) {
-            Ok(h) => h,
-            Err(_) => continue,
-        };
-        let session_title = history
-            .data
-            .biz_data
-            .chat_session
-            .title
-            .clone()
-            .unwrap_or_else(|| "未命名".to_string());
+        let json: Value = serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()?;
+        let session = dig(&json, &["data", "biz_data", "chat_session"])?;
+        let session_title = session["title"].as_str().unwrap_or("未命名").to_string();
 
         if session_title.contains(title_keyword) {
-            let updated = format_timestamp(history.data.biz_data.chat_session.updated_at);
-            let turns: Vec<ConversationTurn> = history
-                .data
-                .biz_data
-                .chat_messages
+            let updated = format_timestamp(session["updated_at"].as_f64());
+            let messages = dig(&json, &["data", "biz_data", "chat_messages"])?
+                .as_array()?;
+
+            let turns: Vec<ConversationTurn> = messages
                 .iter()
-                .filter(|m| m.role == "USER" || m.role == "ASSISTANT")
+                .filter(|m| matches!(m["role"].as_str(), Some("USER") | Some("ASSISTANT")))
                 .filter_map(|m| {
-                    let content: String = m
-                        .fragments
+                    let content: String = m["fragments"]
+                        .as_array()?
                         .iter()
-                        .filter(|f| f.frag_type == "REQUEST" || f.frag_type == "TEXT")
-                        .map(|f| f.content.as_str())
+                        .filter(|f| {
+                            matches!(f["type"].as_str(), Some("REQUEST") | Some("TEXT"))
+                        })
+                        .filter_map(|f| f["content"].as_str())
                         .collect::<Vec<_>>()
                         .join("\n");
 
@@ -77,7 +73,7 @@ pub fn parse_session_detail(dir: &str, title_keyword: &str) -> Option<SessionDet
                     }
 
                     Some(ConversationTurn {
-                        role: m.role.clone(),
+                        role: m["role"].as_str()?.to_string(),
                         content: truncate(&content, 500),
                     })
                 })
@@ -109,32 +105,30 @@ pub fn count_all_sessions(dir: &str) -> usize {
 }
 
 fn parse_file_summary(path: &Path) -> Option<SessionSummary> {
-    let content = fs::read_to_string(path).ok()?;
-    let history: ChatHistory = serde_json::from_str(&content).ok()?;
+    let json: Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
+    let session = dig(&json, &["data", "biz_data", "chat_session"])?;
+    let title = session["title"].as_str().unwrap_or("未命名").to_string();
+    let updated = format_timestamp(session["updated_at"].as_f64());
 
-    let session_title = history
-        .data
-        .biz_data
-        .chat_session
-        .title
-        .unwrap_or_else(|| "未命名".to_string());
-
-    let updated = format_timestamp(history.data.biz_data.chat_session.updated_at);
-
-    let questions: Vec<String> = history
-        .data
-        .biz_data
-        .chat_messages
+    let questions: Vec<String> = dig(&json, &["data", "biz_data", "chat_messages"])?
+        .as_array()?
         .iter()
-        .filter(|m| m.role == "USER")
+        .filter(|m| m["role"] == "USER")
         .filter_map(|m| {
-            m.fragments.iter().find(|f| f.frag_type == "REQUEST").map(|f| {
-                f.content.trim().to_string()
-            })
+            m["fragments"]
+                .as_array()?
+                .iter()
+                .find(|f| f["type"] == "REQUEST")
+                .and_then(|f| f["content"].as_str())
+                .map(|c| c.trim().to_string())
         })
         .collect();
 
     let question_count = questions.len();
+    if question_count == 0 {
+        return None;
+    }
+
     let total_chars = questions.iter().map(|q| q.len()).sum();
     let sample_questions: Vec<String> = questions
         .into_iter()
@@ -142,12 +136,8 @@ fn parse_file_summary(path: &Path) -> Option<SessionSummary> {
         .map(|q| truncate(&q, 80))
         .collect();
 
-    if question_count == 0 {
-        return None;
-    }
-
     Some(SessionSummary {
-        title: session_title,
+        title,
         updated_at: updated,
         question_count,
         sample_questions,
