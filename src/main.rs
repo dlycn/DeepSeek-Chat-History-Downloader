@@ -13,10 +13,8 @@ mod settings;
 mod types;
 mod zhihu;
 
-use serde_json::{json, Value};
-use std::{io::{self, BufRead, Write}};
-
-
+use serde_json::{Value, json};
+use std::io::{self, BufRead, Write};
 
 // 注意: 本 MCP 服务不限制实例数量，Trae 与前台同时运行多个实例时，
 // 共享文件（settings.toml / mcp.log）可能出现数据竞争或内容交错。
@@ -29,19 +27,21 @@ async fn main() {
     let logger = logger::McpLogger::init("mcp");
     logger.log("logger initialize");
     for line in stdin.lock().lines() {
-        let line =  match line {
+        let line = match line {
             Ok(line) => line,
             Err(e) => {
                 tracing::error!("Error reading line: {}", e);
                 continue;
             }
         };
-        if line.is_empty() {continue;}
+        if line.is_empty() {
+            continue;
+        }
 
         let request: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-               tracing::error!("JSON parse error: {}", e);
+                tracing::error!("JSON parse error: {}", e);
                 continue;
             }
         };
@@ -234,7 +234,8 @@ fn handle_session(args: &Value) -> String {
     let title = args["title"].as_str().unwrap_or("");
 
     if title.is_empty() {
-        return "请提供会话标题关键词 (title 参数)。例如: zhihu_session(title=\"Rust\")".to_string();
+        return "请提供会话标题关键词 (title 参数)。例如: zhihu_session(title=\"Rust\")"
+            .to_string();
     }
 
     match ds_parser::parse_session_detail(dir, title) {
@@ -270,9 +271,7 @@ async fn handle_daily(args: &Value) -> String {
         _ => {
             let mut output = String::new();
             output.push_str("## 未配置知乎凭据\n\n");
-            output.push_str(
-                "请先通过 `zhihu_init` 工具配置 Cookie 后重试。\n\n",
-            );
+            output.push_str("请先通过 `zhihu_init` 工具配置 Cookie 后重试。\n\n");
             output.push_str("以下仅展示 DS 会话分析:\n\n");
             output.push_str(&analyzer::format_session_list(
                 &summaries,
