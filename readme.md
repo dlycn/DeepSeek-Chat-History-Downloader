@@ -96,12 +96,12 @@ Cookie 不会被发送到本项目开发者控制的任何服务器。整个 MCP
 
 ```mermaid
 flowchart TB
-    subgraph 常见做法：结构化数据
+    subgraph "常见做法：结构化数据"
         X[MCP Server] -->|JSON| Y[Client]
         Y -->|解析 + 拼接| Z[AI 上下文]
     end
 
-    subgraph 本项目的做法：管道文本
+    subgraph "本项目的做法：管道文本"
         A[DS JSON] --> B[MCP 工具]
         C[知乎 API] --> B
         B -->|Markdown| D[AI 模型]
