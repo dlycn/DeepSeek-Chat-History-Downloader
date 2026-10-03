@@ -40,8 +40,8 @@ DeepSeek 聊天记录下载模块。
 
 if __name__ == "__main__":
 
-    from aichat_histdl import Downloader
+    from aichat_histdl import Downloader, text_filter
     import config
 
-
-    Downloader(token=config.TOKEN, cookie=config.COOKIE_STRING).run()
+    text_filter(fr"D:\Rust\toolkitengine\common\aichathistorydl\chat_Bevy计算着色器详解.json")
+    #Downloader(token=config.TOKEN, cookie=config.COOKIE_STRING).run()
